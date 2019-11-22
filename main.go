@@ -11,23 +11,26 @@ import (
 func main() {
 	var url = flag.String("url", "", "m3u8 index to download")
 	var out = flag.String("out", "media.mp4", "mp4 file to output")
+	var list = flag.String("list", "", "Download m3u8 indices from list")
+	var tsout = flag.Bool("ts",false,"Don't convert to mp4, keep as transport string")
 	flag.Parse()
 
-	if url == nil || *url == "" {
-		log.Fatal("You must specify the -url argument")
+	if (url == nil || *url == "") && (list==nil || *list=="") {
+		log.Fatal("You must specify either the -url or -list argument")
 	}
 
-	mediaList, downloadErr := DownloadIndex(*url)
-
-	if downloadErr != nil {
-		log.Fatal("Could not download")
+	var indices *[]string
+	if *list == "" {
+		indices = &[]string{*url,}
+	} else {
+		var err error
+		indices, err = ReadUrlList(list)
+		if err != nil {
+			log.Fatal("Could not read specified list: %s", err)
+		}
 	}
 
-	spew.Dump(mediaList)
-
-	totalChunks := len(mediaList)
-	log.Printf("Got a total of %d chunks to download\n", totalChunks)
-
+	spew.Dump(indices)
 	pwd, _ := os.Getwd()
 	outfile, temperr := ioutil.TempFile(pwd, "mediats-")
 	if temperr != nil {
@@ -36,7 +39,6 @@ func main() {
 
 	filename := outfile.Name()
 
-	log.Printf("Downloading %s to %s...", *url, filename)
 	fp, err := os.Create(filename)
 	if err != nil {
 		log.Fatalf("Could not create %s: %s", filename, err)
@@ -44,14 +46,32 @@ func main() {
 
 	defer fp.Close()
 
-	for ctr, chunkUrl := range mediaList {
-		log.Printf("Chunk %d / %d...", ctr, totalChunks)
-		DownloadMediaChunk(*chunkUrl, fp)
+	for _, toDownload := range(*indices){
+		log.Printf("Downloading %s", toDownload)
+		mediaList, downloadErr := DownloadIndex(toDownload)
+
+		if downloadErr != nil {
+			log.Fatal("Could not download")
+		}
+
+		//spew.Dump(mediaList)
+
+		totalChunks := len(mediaList)
+		log.Printf("Got a total of %d chunks to download\n", totalChunks)
+
+		log.Printf("Downloading %s to %s...", *url, filename)
+
+		for ctr, chunkUrl := range mediaList {
+			log.Printf("Chunk %d / %d...", ctr, totalChunks)
+			DownloadMediaChunk(*chunkUrl, fp)
+		}
 	}
 
-	convertErr := RunConverter(filename, *out)
-	if convertErr != nil {
-		log.Fatal("Could not convert")
+	if *tsout == false {
+		convertErr := RunConverter(filename, *out)
+		if convertErr != nil {
+			log.Fatal("Could not convert")
+		}
+		os.Remove(filename)
 	}
-	os.Remove(filename)
 }
